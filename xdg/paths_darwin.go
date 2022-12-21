@@ -22,9 +22,10 @@ func ConfigDir() string {
 }
 
 func CacheDir() string {
-	return xdgPath(envCacheHome, filepath.Join(home, "Library", "Caches"))
+	return xdgPath(envCacheHome,
+		filepath.Join(HomeDir(), "Library", "Caches"))
 }
 
 func homeAppSupport() string {
-	return filepath.Join(home, "Library", "Application Support")
+	return filepath.Join(HomeDir(), "Library", "Application Support")
 }

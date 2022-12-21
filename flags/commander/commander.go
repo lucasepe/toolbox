@@ -53,6 +53,7 @@ type Commander struct {
 	important []string      // important top-level flags
 	name      string        // normally path.Base(os.Args[0])
 
+	//Banner         func(io.Writer)                // A function to print a banner. Can be overridden.
 	Explain        func(io.Writer)                // A function to print a top level usage explanation. Can be overridden.
 	ExplainGroup   func(io.Writer, *CommandGroup) // A function to print a command group's usage explanation. Can be overridden.
 	ExplainCommand func(io.Writer, Command)       // A function to print a command usage explanation. Can be overridden.
