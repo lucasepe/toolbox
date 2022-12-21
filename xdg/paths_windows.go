@@ -31,6 +31,6 @@ func localAppData() string {
 	return pathutil.KnownFolder(
 		windows.FOLDERID_LocalAppData,
 		[]string{"LOCALAPPDATA"},
-		[]string{filepath.Join(home, "AppData", "Local")},
+		[]string{filepath.Join(HomeDir(), "AppData", "Local")},
 	)
 }
