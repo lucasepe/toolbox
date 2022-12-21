@@ -53,7 +53,7 @@ type Commander struct {
 	important []string      // important top-level flags
 	name      string        // normally path.Base(os.Args[0])
 
-	//Banner         func(io.Writer)                // A function to print a banner. Can be overridden.
+	Banner         string                         // A banner.
 	Explain        func(io.Writer)                // A function to print a top level usage explanation. Can be overridden.
 	ExplainGroup   func(io.Writer, *CommandGroup) // A function to print a command group's usage explanation. Can be overridden.
 	ExplainCommand func(io.Writer, Command)       // A function to print a command usage explanation. Can be overridden.
@@ -209,6 +209,9 @@ func (p byGroupName) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 // explain prints a brief description of all the subcommands and the
 // important top-level flags.
 func (cdr *Commander) explain(w io.Writer) {
+	if len(cdr.Banner) > 0 {
+		fmt.Fprintln(w, cdr.Banner)
+	}
 	fmt.Fprint(w, "Usage:\n")
 	fmt.Fprintf(w, "   %s <command>\n\n", cdr.name)
 
