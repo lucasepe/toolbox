@@ -11,16 +11,6 @@ import (
 	"text/tabwriter"
 )
 
-// An ExitStatus represents a Posix exit status that a subcommand
-// expects to be returned to the shell.
-type ExitStatus int
-
-const (
-	ExitSuccess ExitStatus = iota
-	ExitFailure
-	ExitUsageError
-)
-
 // A Command represents a single command.
 type Command interface {
 	// Name returns the name of the command.
@@ -36,8 +26,8 @@ type Command interface {
 	// SetFlags adds the flags for this command to the specified set.
 	SetFlags(*flag.FlagSet)
 
-	// Execute executes the command and returns an ExitStatus.
-	Execute(f *flag.FlagSet) ExitStatus
+	// Execute executes the command.
+	Execute(f *flag.FlagSet) error
 }
 
 // A CommandGroup represents a set of commands about a common topic.
@@ -161,10 +151,10 @@ func (cdr *Commander) VisitAll(fn func(*flag.Flag)) {
 // appropriate message is printed to os.Stderr, and ExitUsageError is
 // returned. The additional args are provided as-is to the Execute method
 // of the selected Command.
-func (cdr *Commander) Execute() ExitStatus {
+func (cdr *Commander) Execute() error {
 	if cdr.topFlags.NArg() < 1 {
 		cdr.topFlags.Usage()
-		return ExitUsageError
+		return nil
 	}
 
 	name := cdr.topFlags.Arg(0)
@@ -178,7 +168,7 @@ func (cdr *Commander) Execute() ExitStatus {
 			f.Usage = func() { cdr.ExplainCommand(cdr.Error, cmd) }
 			cmd.SetFlags(f)
 			if f.Parse(cdr.topFlags.Args()[1:]) != nil {
-				return ExitUsageError
+				return nil
 			}
 			return cmd.Execute(f)
 		}
@@ -186,7 +176,7 @@ func (cdr *Commander) Execute() ExitStatus {
 
 	// Cannot find this command.
 	cdr.topFlags.Usage()
-	return ExitUsageError
+	return nil
 }
 
 // countFlags returns the number of top-level flags defined, even those not set.
@@ -299,11 +289,11 @@ the specified command. With no argument, print a list of
 all commands and a brief description of each.
 `
 }
-func (h *helper) Execute(f *flag.FlagSet) ExitStatus {
+func (h *helper) Execute(f *flag.FlagSet) error {
 	switch f.NArg() {
 	case 0:
 		(*Commander)(h).Explain(h.Output)
-		return ExitSuccess
+		return nil
 
 	case 1:
 		for _, group := range h.commands {
@@ -312,14 +302,14 @@ func (h *helper) Execute(f *flag.FlagSet) ExitStatus {
 					continue
 				}
 				(*Commander)(h).ExplainCommand(h.Output, cmd)
-				return ExitSuccess
+				return nil
 			}
 		}
 		fmt.Fprintf(h.Error, "Subcommand %s not understood\n", f.Arg(0))
 	}
 
 	f.Usage()
-	return ExitUsageError
+	return nil
 }
 
 // HelpCommand returns a Command which implements a "help" subcommand.
