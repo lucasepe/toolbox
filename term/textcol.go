@@ -1,4 +1,4 @@
-package textcol
+package term
 
 import (
 	"fmt"

@@ -1,9 +1,9 @@
-package textcol_test
+package term_test
 
 import (
 	"os"
 
-	"github.com/lucasepe/toolbox/textcol"
+	textcol "github.com/lucasepe/toolbox/term"
 )
 
 func ExamplePrintColumns() {

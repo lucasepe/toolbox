@@ -1,7 +1,9 @@
-package slug
+package text_test
 
 import (
 	"testing"
+
+	"github.com/lucasepe/toolbox/text"
 )
 
 var tests = []struct{ in, out string }{
@@ -14,7 +16,7 @@ var tests = []struct{ in, out string }{
 
 func TestSlugify(t *testing.T) {
 	for _, test := range tests {
-		if out := Slugify(test.in); out != test.out {
+		if out := text.Slugify(test.in); out != test.out {
 			t.Errorf("%q: %q != %q", test.in, out, test.out)
 		}
 	}
@@ -23,7 +25,7 @@ func TestSlugify(t *testing.T) {
 func TestSlugifyf(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.out, func(t *testing.T) {
-			if out := Slugifyf("%s", test.in); out != test.out {
+			if out := text.Slugifyf("%s", test.in); out != test.out {
 				t.Errorf("%q: %q != %q", test.in, out, test.out)
 			}
 		})

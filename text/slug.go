@@ -1,4 +1,4 @@
-package slug
+package text
 
 import (
 	"fmt"
