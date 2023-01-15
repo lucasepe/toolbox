@@ -1,170 +1,83 @@
-package table
+package table_test
 
 import (
-	"bytes"
+	"sync"
 	"testing"
+
+	"github.com/lucasepe/toolbox/table"
 )
 
-//
-// Public Method
-//
-
-// lint:ignore errcheck
-func TestDraw(t *testing.T) {
-	tbl := &TextTable{}
-
-	expected := `+------+----------+
-| 名前 | ふりがな |
-+------+----------+
-| foo  | ふう     |
-| hoge | ほげ     |
-+------+----------+
-`
-
-	tbl.SetHeader("名前", "ふりがな")
-
-	tbl.AddRow("foo", "ふう")
-	tbl.AddRow("hoge", "ほげ")
-	tbl.AddRowLine()
-
-	res := bytes.NewBufferString("")
-	err := tbl.DrawInBuffer(res)
-	if err != nil {
-		t.Fatal(err)
+func TestCell(t *testing.T) {
+	c := &table.Cell{
+		Data:  "foo bar",
+		Width: 5,
 	}
 
-	got := res.String()
-	if got != expected {
-		t.Errorf("[got]\n%s\n\n[expected]\n%s\n", got, expected)
+	got := c.String()
+	if got != "fo..." {
+		t.Fatal("need", "fo...", "got", got)
+	}
+	if c.LineWidth() != 5 {
+		t.Fatal("need", 5, "got", c.LineWidth())
+	}
+
+	c.Wrap = true
+	got = c.String()
+	if got != "foo\nbar" {
+		t.Fatal("need", "foo\nbar", "got", got)
+	}
+	if c.LineWidth() != 3 {
+		t.Fatal("need", 3, "got", c.LineWidth())
 	}
 }
 
-//
-// Private Function/Methods
-//
-
-func Test_calcMaxHeight(t *testing.T) {
-	input := []string{
-		"hello", "apple\nmelon\norange", "1\n2",
+func TestRow(t *testing.T) {
+	row := &table.Row{
+		Separator: "\t",
+		Cells: []*table.Cell{
+			{Data: "foo", Width: 3, Wrap: true},
+			{Data: "bar baz", Width: 3, Wrap: true},
+		},
 	}
+	got := row.String()
+	need := "foo\tbar\n   \tbaz"
 
-	got := calcMaxHeight(input)
-	if got != 3 {
-		t.Errorf("calcMaxHeight(%s) != 3(got=%d)", input, got)
-	}
-}
-
-func Test_decideAlignment(t *testing.T) {
-	got := decideAlignment("102948")
-	if got != ALIGN_RIGHT {
-		t.Errorf("decimal string of integer alighment is 'right'")
-	}
-
-	got = decideAlignment("01234")
-	if got != ALIGN_RIGHT {
-		t.Errorf("octal string of integer alighment is 'right'")
-	}
-
-	got = decideAlignment("ff")
-	if got != ALIGN_RIGHT {
-		t.Errorf("hex string without '0x' of integer alighment is 'right'")
-	}
-
-	got = decideAlignment("0xaabbccdd")
-	if got != ALIGN_RIGHT {
-		t.Errorf("hex string of integer alighment is 'right'")
-	}
-
-	got = decideAlignment("1.245")
-	if got != ALIGN_RIGHT {
-		t.Errorf("string of float alighment is 'right'")
-	}
-
-	got = decideAlignment("foo")
-	if got != ALIGN_LEFT {
-		t.Errorf("string  alighment is 'left'")
+	if got != need {
+		t.Fatalf("need: %q | got: %q ", need, got)
 	}
 }
 
-func Test_stringsToTableRow(t *testing.T) {
-	input := []string{
-		"apple", "orange\nmelon\ngrape\nnuts", "peach\nbanana",
-	}
+func TestAlign(t *testing.T) {
+	tbl := table.New()
+	tbl.AddRow("foo", "bar baz")
+	tbl.Rows = []*table.Row{{
+		Separator: "\t",
+		Cells: []*table.Cell{
+			{Data: "foo", Width: 5, Wrap: true},
+			{Data: "bar baz", Width: 10, Wrap: true},
+		},
+	}}
+	tbl.RightAlign(1)
+	got := tbl.String()
+	need := "foo  \t   bar baz"
 
-	tableRows := stringsToTableRow(input)
-	if len(tableRows) != 4 {
-		t.Errorf("returned table height=%d(Expected 4)", len(tableRows))
-	}
-
-	for i, row := range tableRows {
-		if len(row.cellUnits) != len(input) {
-			t.Errorf("width of tableRows[%d]=%d(Expected %d)",
-				i, len(row.cellUnits), len(input))
-		}
-	}
-}
-
-func Test_borderString(t *testing.T) {
-	tbl := new(TextTable)
-	tbl.maxWidths = []int{4, 5, 3, 2}
-
-	expected := "+------+-------+-----+----+"
-
-	border := tbl.borderString()
-	if border != expected {
-		t.Errorf("got %s(Expected %s)", border, expected)
-	}
-
-	tbl.maxWidths = []int{0}
-	expected = "+--+"
-	border = tbl.borderString()
-	if border != expected {
-		t.Errorf("got %s(Expected %s)", border, expected)
+	if got != need {
+		t.Fatalf("need: %q | got: %q ", need, got)
 	}
 }
 
-func Test_formatCellUnit(t *testing.T) {
-	cell := cellUnit{content: "apple", alignment: ALIGN_RIGHT}
-
-	expected := " apple "
-	got := formatCellUnit(&cell, 5)
-	if got != expected {
-		t.Errorf("got '%s'(Expected '%s')", got, expected)
+func TestAddRow(t *testing.T) {
+	var wg sync.WaitGroup
+	table := table.New()
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			table.AddRow("foo")
+		}()
 	}
-
-	expected = "      apple "
-	got = formatCellUnit(&cell, 10)
-	if got != expected {
-		t.Errorf("got '%s'(Expected '%s')", got, expected)
-	}
-
-	cellLeft := cellUnit{content: "orange", alignment: ALIGN_LEFT}
-	expected = " orange "
-	got = formatCellUnit(&cellLeft, 6)
-	if got != expected {
-		t.Errorf("got '%s'(Expected '%s')", got, expected)
-	}
-
-	expected = " orange     "
-	got = formatCellUnit(&cellLeft, 10)
-	if got != expected {
-		t.Errorf("got '%s'(Expected '%s')", got, expected)
-	}
-}
-
-func Test_generateRowString(t *testing.T) {
-	tbl := TextTable{}
-	tbl.maxWidths = []int{8, 5}
-	cells := []*cellUnit{
-		{content: "apple", alignment: ALIGN_RIGHT},
-		{content: "melon", alignment: ALIGN_RIGHT},
-	}
-
-	row := tableRow{cellUnits: cells, kind: ROW_CELLS}
-	got := tbl.generateRowString(&row)
-
-	expected := "|    apple | melon |"
-	if got != expected {
-		t.Errorf("got '%s'(Expected '%s')", got, expected)
+	wg.Wait()
+	if len(table.Rows) != 100 {
+		t.Fatal("want", 100, "got", len(table.Rows))
 	}
 }

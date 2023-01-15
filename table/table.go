@@ -1,306 +1,203 @@
+// Package table provides a decorator for formating data as a table
 package table
 
 import (
-	"bytes"
-	"regexp"
-	"strconv"
+	"fmt"
 	"strings"
+	"sync"
 
+	"github.com/lucasepe/toolbox/text"
 	"github.com/mattn/go-runewidth"
 )
 
-type cellAlignment int
+// Separator is the default column seperator
+var Separator = "\t"
 
-const (
-	ALIGN_LEFT cellAlignment = iota
-	ALIGN_RIGHT
-)
+// Table represents a decorator that renders the data in formatted in a table
+type Table struct {
+	// Rows is the collection of rows in the table
+	Rows []*Row
 
-type rowType int
+	// MaxColWidth is the maximum allowed width for cells in the table
+	MaxColWidth uint
 
-const (
-	ROW_LINE rowType = iota
-	ROW_CELLS
-)
+	// Wrap when set to true wraps the contents of the columns when the length exceeds the MaxColWidth
+	Wrap bool
 
-type cellUnit struct {
-	content   string
-	alignment cellAlignment
+	// Separator is the seperator for columns in the table. Default is "\t"
+	Separator string
+
+	mtx        *sync.RWMutex
+	rightAlign map[int]bool
 }
 
-type tableRow struct {
-	cellUnits []*cellUnit
-	kind      rowType
+// New returns a new Table with default values
+func New() *Table {
+	return &Table{
+		Separator:  Separator,
+		mtx:        new(sync.RWMutex),
+		rightAlign: map[int]bool{},
+	}
 }
 
-type TextTable struct {
-	header    []*tableRow
-	rows      []*tableRow
-	width     int
-	maxWidths []int
+// AddRow adds a new row to the table
+func (t *Table) AddRow(data ...interface{}) *Table {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+	r := NewRow(data...)
+	t.Rows = append(t.Rows, r)
+	return t
 }
 
-func (t *TextTable) updateColumnWidth(rows []*tableRow) {
-	for _, row := range rows {
-		for i, unit := range row.cellUnits {
-			width := stringWidth(unit.content)
-			if t.maxWidths[i] < width {
-				t.maxWidths[i] = width
+// Bytes returns the []byte value of table
+func (t *Table) Bytes() []byte {
+	return []byte(t.String())
+}
+
+func (t *Table) RightAlign(col int) {
+	t.mtx.Lock()
+	t.rightAlign[col] = true
+	t.mtx.Unlock()
+}
+
+// String returns the string value of table
+func (t *Table) String() string {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+
+	if len(t.Rows) == 0 {
+		return ""
+	}
+
+	// determine the width for each column (cell in a row)
+	var colwidths []uint
+	for _, row := range t.Rows {
+		for i, cell := range row.Cells {
+			// resize colwidth array
+			if i+1 > len(colwidths) {
+				colwidths = append(colwidths, 0)
+			}
+			cellwidth := cell.LineWidth()
+			if t.MaxColWidth != 0 && cellwidth > t.MaxColWidth {
+				cellwidth = t.MaxColWidth
+			}
+
+			if cellwidth > colwidths[i] {
+				colwidths[i] = cellwidth
 			}
 		}
 	}
-}
 
-/*
-SetHeader adds header row from strings given
-*/
-func (t *TextTable) SetHeader(headers ...string) {
-	if len(headers) == 0 {
-		return
-	}
-
-	columnSize := len(headers)
-
-	t.width = columnSize
-	t.maxWidths = make([]int, columnSize)
-
-	rows := stringsToTableRow(headers)
-	t.updateColumnWidth(rows)
-
-	t.header = rows
-}
-
-/*
-AddRow adds column from strings given
-*/
-func (t *TextTable) AddRow(strs ...string) {
-	if len(strs) == 0 {
-		return
-	}
-
-	//if len(strs) > t.width {
-	//	return errors.New("row width should be less than header width")
-	//}
-
-	padded := make([]string, t.width)
-	copy(padded, strs)
-	rows := stringsToTableRow(padded)
-	t.rows = append(t.rows, rows...)
-
-	t.updateColumnWidth(rows)
-}
-
-/*
-AddRowLine adds row border
-*/
-func (t *TextTable) AddRowLine() {
-	rowLine := &tableRow{kind: ROW_LINE}
-	t.rows = append(t.rows, rowLine)
-}
-
-func (t *TextTable) borderString() string {
-	borderString := "+"
-	margin := 2
-
-	for _, width := range t.maxWidths {
-		for i := 0; i < width+margin; i++ {
-			borderString += "-"
+	var lines []string
+	for _, row := range t.Rows {
+		row.Separator = t.Separator
+		for i, cell := range row.Cells {
+			cell.Width = colwidths[i]
+			cell.Wrap = t.Wrap
+			cell.RightAlign = t.rightAlign[i]
 		}
-		borderString += "+"
+		lines = append(lines, row.String())
 	}
-
-	return borderString
+	return strings.Join(lines, "\n")
 }
 
-func stringsToTableRow(strs []string) []*tableRow {
-	maxHeight := calcMaxHeight(strs)
-	strLines := make([][]string, maxHeight)
+// Row represents a row in a table
+type Row struct {
+	// Cells is the group of cell for the row
+	Cells []*Cell
 
-	for i := 0; i < maxHeight; i++ {
-		strLines[i] = make([]string, len(strs))
+	// Separator for tabular columns
+	Separator string
+}
+
+// NewRow returns a new Row and adds the data to the row
+func NewRow(data ...interface{}) *Row {
+	r := &Row{Cells: make([]*Cell, len(data))}
+	for i, d := range data {
+		r.Cells[i] = &Cell{Data: d}
 	}
+	return r
+}
 
-	alignments := make([]cellAlignment, len(strs))
-	for i := range strs {
-		alignments[i] = ALIGN_LEFT // decideAlignment(str)
-	}
-
-	for i, str := range strs {
-		divideds := strings.Split(str, "\n")
-		for j, line := range divideds {
-			strLines[j][i] = line
+// String returns the string representation of the row
+func (r *Row) String() string {
+	// get the max number of lines for each cell
+	var lc int // line count
+	for _, cell := range r.Cells {
+		if clc := len(strings.Split(cell.String(), "\n")); clc > lc {
+			lc = clc
 		}
 	}
 
-	rows := make([]*tableRow, maxHeight)
-	for j := 0; j < maxHeight; j++ {
-		row := new(tableRow)
-		row.kind = ROW_CELLS
-		for i := 0; i < len(strs); i++ {
-			content := strLines[j][i]
-			unit := &cellUnit{content: content}
-			unit.alignment = alignments[i]
-			row.cellUnits = append(row.cellUnits, unit)
-		}
-
-		rows[j] = row
-	}
-
-	return rows
-}
-
-var hexRegexp = regexp.MustCompile("^0x")
-
-func decideAlignment(str string) cellAlignment {
-	// decimal/octal number
-	_, err := strconv.ParseInt(str, 10, 64)
-	if err == nil {
-		return ALIGN_RIGHT
-	}
-
-	// hex number
-	_, err = strconv.ParseInt(str, 16, 64)
-	if err == nil {
-		return ALIGN_RIGHT
-	}
-
-	if hexRegexp.MatchString(str) {
-		tmp := str[2:]
-		_, err := strconv.ParseInt(tmp, 16, 64)
-		if err == nil {
-			return ALIGN_RIGHT
+	// allocate a two-dimentional array of cells for each line and add size them
+	cells := make([][]*Cell, lc)
+	for x := 0; x < lc; x++ {
+		cells[x] = make([]*Cell, len(r.Cells))
+		for y := 0; y < len(r.Cells); y++ {
+			cells[x][y] = &Cell{Width: r.Cells[y].Width}
 		}
 	}
 
-	_, err = strconv.ParseFloat(str, 64)
-	if err == nil {
-		return ALIGN_RIGHT
-	}
-
-	return ALIGN_LEFT
-}
-
-func calcMaxHeight(strs []string) int {
-	max := -1
-
-	for _, str := range strs {
-		lines := strings.Split(str, "\n")
-		height := len(lines)
-		if height > max {
-			max = height
+	// insert each line in a cell as new cell in the cells array
+	for y, cell := range r.Cells {
+		lines := strings.Split(cell.String(), "\n")
+		for x, line := range lines {
+			cells[x][y].Data = line
 		}
 	}
 
-	return max
+	// format each line
+	lines := make([]string, lc)
+	for x := range lines {
+		line := make([]string, len(cells[x]))
+		for y := range cells[x] {
+			line[y] = cells[x][y].String()
+		}
+		lines[x] = strings.Join(line, r.Separator)
+	}
+	return strings.Join(lines, "\n")
 }
 
-func stringWidth(str string) int {
-	return runewidth.StringWidth(str)
+// Cell represents a column in a row
+type Cell struct {
+	// Width is the width of the cell
+	Width uint
+
+	// Wrap when true wraps the contents of the cell when the lenght exceeds the width
+	Wrap bool
+
+	// RightAlign when true aligns contents to the right
+	RightAlign bool
+
+	// Data is the cell data
+	Data interface{}
 }
 
-/*
-// Draw constructs text table from receiver and returns it as string
-func (t *TextTable) Draw() string {
-	drawedRows := make([]string, len(t.header)+len(t.rows)+3)
-	index := 0
+// LineWidth returns the max width of all the lines in a cell
+func (c *Cell) LineWidth() uint {
+	width := 0
+	for _, s := range strings.Split(c.String(), "\n") {
+		w := runewidth.StringWidth(s)
+		if w > width {
+			width = w
+		}
+	}
+	return uint(width)
+}
 
-	border := t.borderString()
-
-	// top line
-	drawedRows[index] = border
-	index++
-
-	for _, row := range t.header {
-		drawedRows[index] = t.generateRowString(row)
-		index++
+// String returns the string formated representation of the cell
+func (c *Cell) String() string {
+	if c.Data == nil {
+		return text.PadLeft(" ", int(c.Width), ' ')
 	}
 
-	drawedRows[index] = border
-	index++
-
-	for _, row := range t.rows {
-		var rowStr string
-		if row.kind == ROW_CELLS {
-			rowStr = t.generateRowString(row)
+	s := fmt.Sprintf("%v", c.Data)
+	if c.Width > 0 {
+		if c.Wrap && uint(len(s)) > c.Width {
+			return text.WrapString(s, c.Width)
 		} else {
-			rowStr = border
+			return text.Resize(s, c.Width, c.RightAlign)
 		}
-		drawedRows[index] = rowStr
-		index++
 	}
-
-	// bottom line
-	if len(t.rows) != 0 {
-		drawedRows[index] = border
-		index++
-	}
-
-	return strings.Join(drawedRows[:index], "\n")
-}
-*/
-
-func (t *TextTable) DrawInBuffer(buf *bytes.Buffer) error {
-	border := t.borderString()
-
-	// top line
-	if _, err := buf.WriteString(border); err != nil {
-		return err
-	}
-	buf.WriteString("\n")
-
-	// header
-	for _, row := range t.header {
-		if _, err := buf.WriteString(t.generateRowString(row)); err != nil {
-			return err
-		}
-		buf.WriteString("\n")
-	}
-
-	if _, err := buf.WriteString(border); err != nil {
-		return err
-	}
-	buf.WriteString("\n")
-
-	for _, row := range t.rows {
-		var rowStr string
-		if row.kind == ROW_CELLS {
-			rowStr = t.generateRowString(row)
-		} else {
-			rowStr = border
-		}
-		if _, err := buf.WriteString(rowStr); err != nil {
-			return err
-		}
-		buf.WriteString("\n")
-	}
-
-	return nil
-}
-
-func formatCellUnit(unit *cellUnit, maxWidth int) string {
-	str := unit.content
-	width := stringWidth(unit.content)
-
-	padding := strings.Repeat(" ", maxWidth-width)
-
-	var ret string
-	if unit.alignment == ALIGN_RIGHT {
-		ret = padding + str
-	} else {
-		ret = str + padding
-	}
-
-	return " " + ret + " "
-}
-
-func (t *TextTable) generateRowString(row *tableRow) string {
-	separator := "|"
-
-	str := separator
-	for i, unit := range row.cellUnits {
-		str += formatCellUnit(unit, t.maxWidths[i])
-		str += separator
-	}
-
-	return str
+	return s
 }
